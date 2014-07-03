@@ -5,7 +5,7 @@ var clusterphone  = require("clusterphone").ns("socketio-cluster"),
     cluster       = require("cluster"),
     shimmer       = require("shimmer"),
     url           = require("url"),
-    debug         = require("debug")("socketio-cluster");
+    debug         = require("debug")("socketio-cluster:" + (cluster.isMaster ? "master" : "worker" + cluster.worker.id));
 
 // TODO: Support multiple socket.io instances.
 
@@ -20,12 +20,14 @@ if (cluster.isMaster) {
   };
 
   clusterphone.handlers.newsid = function(data, fd, cb) {
+    debug("Tracking socket id " + data.sid + " for worker " + data.workerId);
     sessionIds[data.sid] = data.workerId;
     workerSessions[data.workerId].push(data.sid);
     cb();
   };
 
   clusterphone.handlers.delsid = function(sid, fd, cb) {
+    debug("Deleting socket id " + sid);
     var workerId = sessionIds[sid];
     delete sessionIds[sid];
     if (workerId) {
@@ -34,6 +36,7 @@ if (cluster.isMaster) {
         workerSessions[workerId] = workerSessions.splice(idx, 1);
       }
     }
+    cb();
   };
 
   cluster.on("fork", function(worker) {
@@ -54,6 +57,13 @@ if (cluster.isMaster) {
 function patchEngineIO(engineIo) {
   shimmer.wrap(engineIo, "handleRequest", function(original) {
     return function(req, res) {
+      // Short-circuit, if this is a proxied request we accept it no matter
+      // what. This is because hotpotato doesn't support passing off a request
+      // that was already passed off ;)
+      if (req.headers["x-hotpotato-worker"]) {
+        return original.call(this, req, res);
+      }
+
       debug("Intercepting engine.io handleRequest");
 
       this.prepare(req);
@@ -68,7 +78,25 @@ function patchEngineIO(engineIo) {
 
       // Okay, we got a request for a sid we don't recognize. Pass it off to
       // master to be rerouted.
+      debug("Passing a socket.io request off to be re-routed.");
       hotpotato.passConnection(req, res);
+    };
+  });
+
+  shimmer.wrap(engineIo, "handleUpgrade", function(original) {
+    return function(req, socket, head) {
+      debug("Intercepting engine.io handleUpgrade");
+
+      this.prepare(req);
+      var sid = req._query.sid;
+
+      if (!sid || this.clients.hasOwnProperty(sid)) {
+        debug("Allowing worker " + cluster.worker.id + " to handle upgrade.", sid);
+        return original.call(this, req, socket, head);
+      }
+
+      debug("Passing a socket.io upgrade off to be re-routed.");
+      hotpotato.passUpgrade(req, socket, head);
     };
   });
 }
