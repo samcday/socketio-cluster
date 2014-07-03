@@ -1,19 +1,16 @@
 {
-  "name": "cluster-socketio1",
+  "name": "socketio-cluster",
   "version": "0.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "socketio-cluster.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
-  "license": "ISC",
+  "license": "Unlicense",
   "dependencies": {
-    "chunked": "0.0.0",
+    "clusterphone": "0.0.3",
     "debug": "^1.0.2",
-    "express": "^4.4.5",
-    "hashring": "^2.0.1",
-    "shimmer": "^1.0.0",
-    "socket.io": "^1.0.6"
+    "shimmer": "^1.0.0"
   }
 }

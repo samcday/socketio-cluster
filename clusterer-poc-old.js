@@ -1,16 +1,9 @@
 var fs = require("fs");
-var app = require("express")();
-var server = require("http").createServer(app);
-var cluster = require("cluster");
+var 
 var os = require("os");
 var debug = require("debug")("app");
 var shimmer = require("shimmer");
-var http = require("http");
 
-var io = require("socket.io")(server, {
-  transports: ["polling"],
-  // pingTimeout: 20000
-});
 
 // The idea is as follows:
 
@@ -35,6 +28,10 @@ if (cluster.isMaster) {
 
   var sessionIds = {};
   var workerSessions = {};
+
+  setInterval(function() {
+    console.log(sessionIds);
+  }, 1000);
 
   var pickRandomWorker = function() {
     var workerKeys = Object.keys(cluster.workers);
@@ -128,23 +125,30 @@ if (cluster.isMaster) {
           var res = new http.ServerResponse(req);
           res.assignSocket(fd);
 
+          http._connectionListener.call(server, fd);
+
           debug("(" + cluster.worker.id + ") was given a connection.", req.url);
 
-          original.call(io.eio, req, res);
-
           var socket = fd;
-          setTimeout(function() {
-            message.data.forEach(function(data) {
-              debug("Emitting data.", new Buffer(data, "base64").toString());
-              req.emit("data", new Buffer(data, "base64"));
-            });
-            req.emit("end");
-          }, 10);
 
+          // TODO: basically, we do this hacky shit where we got this connection
+          // from another worker right? The problem is the internals of the
+          // http server are all fucked up, so keep-alive connections are not
+          // acting properly. I should try and fix this properly, but for now
+          // we will simply nuke the connection once the response is complete.
+          res.setHeader("Connection", "close");
           res.on("finish", function() {
             res.detachSocket(socket);
             socket.destroySoon();
           });
+
+          original.call(io.eio, req, res);
+
+          message.data.forEach(function(data) {
+            debug("Emitting data.", new Buffer(data, "base64").toString());
+            req.emit("data", new Buffer(data, "base64"));
+          });
+          req.emit("end");
 
           break;
         }
@@ -152,23 +156,14 @@ if (cluster.isMaster) {
     });
 
     return function(req, res) {
-      this.prepare(req);
-
-      debug("(" + cluster.worker.id + ") got request", req.url);
-
-      var sid = req._query.sid;
-      if (!sid || this.clients.hasOwnProperty(sid)) {
-        debug("(" + cluster.worker.id + ") Handling own connection.", sid);
-        original.call(this, req, res);
-        return;
-      }
-
       debug("(" + cluster.worker.id + ") is passing off a connection", sid);
 
       var chunks = [];
 
       // This request already has an sid that we don't own. Send it to master
       // to be rerouted.
+
+      var socket = req.connection;
       
       req.on("data", function(data) {
         chunks.push(data.toString("base64"));
@@ -179,24 +174,28 @@ if (cluster.isMaster) {
         reqFields.forEach(function(field) {
           reqPayload[field] = req[field];
         });
-        process.send({type: "socketclusterer:reroute", payload: reqPayload, data: chunks}, req.connection);
+        process.send({type: "socketclusterer:reroute", payload: reqPayload, data: chunks}, socket);
+
+        // Make sure we clean up the request from this worker, since we've now
+        // passed it off to another one.
+        socket.ondata = null;
+        socket.onend = null;
+        socket.removeAllListeners();
+
+        var parser = socket.parser;
+        if (parser) {
+          parser.finish();
+          socket.parser = null;
+          parser._headers = [];
+          parser.inIncoming = null;
+          parser.socket = null;
+          parser.incoming = null;
+          http.parsers.free(parser);
+        }
       });
     };
   });
 
-  io.on("connection", function(socket) {
-    socket.on("hello", function() {
-      debug("(" + cluster.worker.id + ") received a hello!");
-    });
-  });
-
-  setInterval(function() {
-    io.send("foo");
-  }, 1000);
-
-  app.get("/", function(req, res) {
-    res.sendfile("index.html");
-  });
 
   server.listen(3000);
 }
