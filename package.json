@@ -1,16 +1,34 @@
 {
   "name": "socketio-cluster",
   "version": "0.0.0",
-  "description": "",
+  "description": "Node cluster support for Socket.IO 1.0",
   "main": "socketio-cluster.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "",
+  "author": "Sam Day <me@samcday.com.au>",
   "license": "Unlicense",
   "dependencies": {
-    "clusterphone": "0.0.3",
+    "clusterphone": "0.0.7",
     "debug": "^1.0.2",
     "shimmer": "^1.0.0"
+  },
+  "keywords": [
+    "socketio",
+    "socket.io",
+    "socket",
+    "engine.io",
+    "cluster"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/samcday/socketio-cluster.git"
+  },
+  "bugs": {
+    "url": "https://github.com/samcday/socketio-cluster/issues"
+  },
+  "homepage": "https://github.com/samcday/socketio-cluster",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org"
   }
 }
