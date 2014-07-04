@@ -11,7 +11,7 @@
   "dependencies": {
     "clusterphone": "0.0.7",
     "debug": "^1.0.2",
-    "hotpotato": "0.0.1",
+    "hotpotato": "0.0.2",
     "shimmer": "^1.0.0"
   },
   "keywords": [
