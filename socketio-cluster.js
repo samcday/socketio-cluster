@@ -27,7 +27,7 @@ function patchEngineIO(engineIo) {
       // If this request doesn't yet have a sid, *or* it bears a sid we handle
       // then we allow it through.
       if (!sid || this.clients.hasOwnProperty(sid)) {
-        debug("Allowing worker " + cluster.worker.id + " to handle request.", sid);
+        debug("Allowing this worker to handle request.", sid);
         return original.call(this, req, res);
       }
 
@@ -46,7 +46,7 @@ function patchEngineIO(engineIo) {
       var sid = req._query.sid;
 
       if (!sid || this.clients.hasOwnProperty(sid)) {
-        debug("Allowing worker " + cluster.worker.id + " to handle upgrade.", sid);
+        debug("Allowing this worker to handle upgrade.", sid);
         return original.call(this, req, socket, head);
       }
 

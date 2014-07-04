@@ -4,7 +4,7 @@
   "description": "Node cluster support for Socket.IO 1.0",
   "main": "socketio-cluster.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "mocha test/test-correctness.js"
   },
   "author": "Sam Day <me@samcday.com.au>",
   "license": "Unlicense",
@@ -31,5 +31,10 @@
   "homepage": "https://github.com/samcday/socketio-cluster",
   "publishConfig": {
     "registry": "https://registry.npmjs.org"
+  },
+  "devDependencies": {
+    "chai": "^1.9.1",
+    "mocha": "^1.20.1",
+    "socket.io-client": "^1.0.6"
   }
 }
