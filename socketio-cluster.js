@@ -9,51 +9,6 @@ var clusterphone  = require("clusterphone").ns("socketio-cluster"),
 
 // TODO: Support multiple socket.io instances.
 
-if (cluster.isMaster) {
-  var sessionIds = {};
-  var workerSessions = {};
-
-  hotpotato.router = function(method, reqUrl, headers) {
-    reqUrl = url.parse(reqUrl, true);
-    var sid = reqUrl.query.sid;
-    return sessionIds[sid];
-  };
-
-  clusterphone.handlers.newsid = function(data, fd, cb) {
-    debug("Tracking socket id " + data.sid + " for worker " + data.workerId);
-    sessionIds[data.sid] = data.workerId;
-    workerSessions[data.workerId].push(data.sid);
-    cb();
-  };
-
-  clusterphone.handlers.delsid = function(sid, fd, cb) {
-    debug("Deleting socket id " + sid);
-    var workerId = sessionIds[sid];
-    delete sessionIds[sid];
-    if (workerId) {
-      var idx = workerSessions[workerId].indexOf(sid);
-      if (idx > -1) {
-        workerSessions[workerId] = workerSessions.splice(idx, 1);
-      }
-    }
-    cb();
-  };
-
-  cluster.on("fork", function(worker) {
-    workerSessions[worker.id] = [];
-  });
-
-  cluster.on("exit", function(worker) {
-    var sessions = workerSessions[worker.id];
-    delete workerSessions[worker.id];
-    if (sessions) {
-      sessions.forEach(function(session) {
-        delete sessionIds[session];
-      });
-    }
-  });
-}
-
 function patchEngineIO(engineIo) {
   shimmer.wrap(engineIo, "handleRequest", function(original) {
     return function(req, res) {
@@ -124,7 +79,7 @@ function patchSocketIO(socketIo) {
         workerId: cluster.worker.id
       }, next);
 
-      socket.on("close", function() {
+      socket.on("disconnect", function() {
         clusterphone.sendToMaster("delsid", socket.id);
       });
     };
@@ -153,3 +108,90 @@ function patchSocketIO(socketIo) {
 }
 
 module.exports = patchSocketIO;
+
+if (cluster.isMaster) {
+  var sessionIds = {};
+  var workerSessions = {};
+  var pendingSessions = {};
+
+  module.exports.activeSockets = 0;
+  module.exports.workerSessions = workerSessions;
+
+  hotpotato.router = function(method, reqUrl, headers) {
+    reqUrl = url.parse(reqUrl, true);
+    var sid = reqUrl.query.sid;
+
+    // TODO: check an LRU cache to ensure the session id wasn't recently binned.
+    if (!sessionIds[sid]) {
+      // Well, we can't find the session ID. That *might* not mean there's no
+      // corresponding session in one of the workers though. Due to how engine.io
+      // is currently implemented, I can't figure out a way to monkeypatch it
+      // such that I can hold off the handshake response to the client whilst I
+      // propagate the session ID to the master. This means another request may
+      // have come in before the message has made it to master. Realistically,
+      // this will probably only ever happen when load testing on localhost...
+      // We still need to handle it though.
+      // We have a registry of pending session ids as promises.
+      var promise = new Promise(function(resolve) {
+        pendingSessions[sid] = resolve;
+      });
+
+      return promise
+        .timeout(3000)
+        .catch(Promise.TimeoutError, function() {
+          debug("Timed out waiting for pending session ID " + sid + " to be registered.");
+          return null;
+        })
+        .then(function(result) {
+          delete pendingSessions[sid];
+          return result;
+        });
+    }
+    return sessionIds[sid];
+  };
+
+  clusterphone.handlers.newsid = function(data, fd, cb) {
+    var sid = data.sid,
+        workerId = data.workerId;
+
+    debug("Tracking socket id " + sid + " for worker " + workerId);
+
+    module.exports.activeSockets++;
+    sessionIds[data.sid] = workerId;
+    workerSessions[workerId].push(sid);
+
+    if (pendingSessions[sid]) {
+      pendingSessions[sid](workerId);
+    }
+
+    cb();
+  };
+
+  clusterphone.handlers.delsid = function(sid, fd, cb) {
+    debug("Deleting socket id " + sid);
+    module.exports.activeSockets--;
+    var workerId = sessionIds[sid];
+    delete sessionIds[sid];
+    if (workerId) {
+      var idx = workerSessions[workerId].indexOf(sid);
+      if (idx > -1) {
+        workerSessions[workerId].splice(idx, 1);
+      }
+    }
+    cb();
+  };
+
+  cluster.on("fork", function(worker) {
+    workerSessions[worker.id] = [];
+  });
+
+  cluster.on("exit", function(worker) {
+    var sessions = workerSessions[worker.id];
+    delete workerSessions[worker.id];
+    if (sessions) {
+      sessions.forEach(function(session) {
+        delete sessionIds[session];
+      });
+    }
+  });
+}
