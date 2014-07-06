@@ -1,7 +1,7 @@
 "use strict";
 
 var clusterphone  = require("clusterphone").ns("socketio-cluster"),
-    Promise = require("bluebird"),
+    Promise       = require("bluebird"),
     hotpotato     = require("hotpotato"),
     cluster       = require("cluster"),
     shimmer       = require("shimmer"),
@@ -75,9 +75,11 @@ function patchSocketIO(socketIo) {
   if (cluster.isWorker) {
     // Handles notifying the master of a new sid.
     var registerSid = function(socket, next) {
+      debug("Registering sid " + socket.id + " with master.");
       clusterphone.sendToMaster("newsid", socket.id).ackd(next);
 
       socket.on("disconnect", function() {
+        debug("De-registering sid " + socket.id + " with master.");
         clusterphone.sendToMaster("delsid", socket.id);
       });
     };
@@ -137,7 +139,7 @@ if (cluster.isMaster) {
       });
 
       return promise
-        .timeout(10000)
+        .timeout(5000)
         .catch(Promise.TimeoutError, function() {
           debug("Timed out waiting for pending session ID " + sid + " to be registered.");
           return null;

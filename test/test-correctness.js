@@ -1,3 +1,5 @@
+"use strict";
+
 var ioClient = require("socket.io-client"),
     cluster = require("cluster"),
     socketIo = require("socket.io");
@@ -9,18 +11,18 @@ var foo = http.createClient;
 http.createClient = function() {
   console.log("Creating client.");
   return foo.apply(this,arguments);
-}
+};
 
 var expect = require("chai").expect;
 
 describe("socket.io-cluster", function() {
   this.timeout(60000);  // 60 seconds.
 
-  // before(function() {
-  //   cluster.setupMaster({
-  //     exec: __dirname + "/worker.js"
-  //   })
-  // })
+  before(function() {
+    cluster.setupMaster({
+      exec: __dirname + "/worker.js"
+    });
+  });
 
   function spawnClient(address, transports) {
     var client = ioClient(address, { multiplex: false, transports: transports });
@@ -40,28 +42,11 @@ describe("socket.io-cluster", function() {
   }
 
   it("behaves correctly under high load - polling transport", function(done) {
-    // var numWorkers = 1;
-    // var workers = [];
-    // for(var i = 0; i < numWorkers; i++) {
-    //   workers.push(cluster.fork());
-    // }
-
-var server = http.createServer();
-server.listen(3000);
-
-var io = socketIo(server);
-
-server.on("listening", function() {
-  io.on("connection", function(socket) {
-    // console.log("Connection.");
-  });
-
-  setInterval(function() {
-    // io.emit("ping", {worker: cluster.worker.id, date: Date.now()});
-    io.emit("ping", {worker: 123, date: Date.now()});
-  }, 1000);
-});
-
+    var numWorkers = Math.max(2, require("os").cpus().length);
+    var workers = [];
+    for(var i = 0; i < numWorkers; i++) {
+      workers.push(cluster.fork());
+    }
 
     // var numWorkersReady = 0;
     // cluster.on("listening", function(worker, address) {
@@ -70,7 +55,7 @@ server.on("listening", function() {
       //   return;
       // }
 
-      var numClients = 1000;
+      var numClients = 50;
       var numCreated = 0;
       var numConnected = 0;
       var spawnedClients = [];
