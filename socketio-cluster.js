@@ -1,6 +1,7 @@
 "use strict";
 
 var clusterphone  = require("clusterphone").ns("socketio-cluster"),
+    Promise = require("bluebird"),
     hotpotato     = require("hotpotato"),
     cluster       = require("cluster"),
     shimmer       = require("shimmer"),
@@ -74,10 +75,7 @@ function patchSocketIO(socketIo) {
   if (cluster.isWorker) {
     // Handles notifying the master of a new sid.
     var registerSid = function(socket, next) {
-      clusterphone.sendToMaster("newsid", {
-        sid: socket.id,
-        workerId: cluster.worker.id
-      }, next);
+      clusterphone.sendToMaster("newsid", socket.id).ackd(next);
 
       socket.on("disconnect", function() {
         clusterphone.sendToMaster("delsid", socket.id);
@@ -92,7 +90,7 @@ function patchSocketIO(socketIo) {
         this.use(registerSid);
 
         return original.apply(this, arguments);
-      }
+      };
     });
   }
 
@@ -117,7 +115,7 @@ if (cluster.isMaster) {
   module.exports.activeSockets = 0;
   module.exports.workerSessions = workerSessions;
 
-  hotpotato.router = function(method, reqUrl, headers) {
+  hotpotato.router = function(method, reqUrl) {
     reqUrl = url.parse(reqUrl, true);
     var sid = reqUrl.query.sid;
 
@@ -132,12 +130,14 @@ if (cluster.isMaster) {
       // this will probably only ever happen when load testing on localhost...
       // We still need to handle it though.
       // We have a registry of pending session ids as promises.
+      debug("Don't have " + sid + " in registry. Going to try waiting for it.");
+
       var promise = new Promise(function(resolve) {
         pendingSessions[sid] = resolve;
       });
 
       return promise
-        .timeout(3000)
+        .timeout(10000)
         .catch(Promise.TimeoutError, function() {
           debug("Timed out waiting for pending session ID " + sid + " to be registered.");
           return null;
@@ -150,24 +150,23 @@ if (cluster.isMaster) {
     return sessionIds[sid];
   };
 
-  clusterphone.handlers.newsid = function(data, fd, cb) {
-    var sid = data.sid,
-        workerId = data.workerId;
+  clusterphone.handlers.newsid = function(worker, sid, fd, ack) {
+    var workerId = worker.id;
 
     debug("Tracking socket id " + sid + " for worker " + workerId);
 
     module.exports.activeSockets++;
-    sessionIds[data.sid] = workerId;
+    sessionIds[sid] = workerId;
     workerSessions[workerId].push(sid);
 
     if (pendingSessions[sid]) {
       pendingSessions[sid](workerId);
     }
 
-    cb();
+    ack();
   };
 
-  clusterphone.handlers.delsid = function(sid, fd, cb) {
+  clusterphone.handlers.delsid = function(worker, sid, fd, cb) {
     debug("Deleting socket id " + sid);
     module.exports.activeSockets--;
     var workerId = sessionIds[sid];
