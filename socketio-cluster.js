@@ -10,6 +10,8 @@ var clusterphone  = require("clusterphone").ns("socketio-cluster"),
 
 // TODO: Support multiple socket.io instances.
 
+var bouncer = hotpotato("socketio-cluster");
+
 function patchEngineIO(engineIo) {
   shimmer.wrap(engineIo, "handleRequest", function(original) {
     return function(req, res) {
@@ -35,7 +37,7 @@ function patchEngineIO(engineIo) {
       // Okay, we got a request for a sid we don't recognize. Pass it off to
       // master to be rerouted.
       debug("Passing a socket.io request off to be re-routed.");
-      hotpotato.passConnection(req, res);
+      bouncer.passRequest(req, res);
     };
   });
 
@@ -52,7 +54,7 @@ function patchEngineIO(engineIo) {
       }
 
       debug("Passing a socket.io upgrade off to be re-routed.");
-      hotpotato.passUpgrade(req, socket, head);
+      bouncer.passUpgrade(req, socket, head);
     };
   });
 }
@@ -87,7 +89,7 @@ function patchSocketIO(socketIo) {
     shimmer.wrap(socketIo.prototype, "attach", function(original) {
       return function(server) {
         debug("Patching socket.io Server#attach");
-        hotpotato.server(server);
+        bouncer.bindTo(server);
 
         this.use(registerSid);
 
@@ -117,7 +119,7 @@ if (cluster.isMaster) {
   module.exports.activeSockets = 0;
   module.exports.workerSessions = workerSessions;
 
-  hotpotato.router = function(method, reqUrl) {
+  bouncer.router(function(method, reqUrl) {
     reqUrl = url.parse(reqUrl, true);
     var sid = reqUrl.query.sid;
 
@@ -150,7 +152,7 @@ if (cluster.isMaster) {
         });
     }
     return sessionIds[sid];
-  };
+  });
 
   clusterphone.handlers.newsid = function(worker, sid, fd, ack) {
     var workerId = worker.id;
