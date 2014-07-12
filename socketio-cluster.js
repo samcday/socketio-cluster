@@ -90,7 +90,6 @@ function patchSocketIO(socketIo) {
       clusterphone.sendToMaster("newsid", socket.id).ackd(next);
 
       socket.on("disconnect", function() {
-        console.log("Socket disconnected.", arguments);
         debug("De-registering sid " + socket.id + " with master.");
         clusterphone.sendToMaster("delsid", socket.id);
       });
