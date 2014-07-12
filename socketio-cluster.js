@@ -10,7 +10,9 @@ var clusterphone  = require("clusterphone").ns("socketio-cluster"),
 
 // TODO: Support multiple socket.io instances.
 
-var bouncer = hotpotato("socketio-cluster");
+var bouncer = hotpotato("socketio-cluster", {
+  proxyMaxSockets: 100
+});
 
 function patchEngineIO(engineIo) {
   shimmer.wrap(engineIo, "handleRequest", function(original) {
