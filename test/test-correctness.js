@@ -6,17 +6,14 @@ var ioClient = require("socket.io-client"),
 
 socketIo = require("../socketio-cluster")(socketIo);
 
-var http = require("http");
-var foo = http.createClient;
-http.createClient = function() {
-  console.log("Creating client.");
-  return foo.apply(this,arguments);
-};
-
 var expect = require("chai").expect;
 
 describe("socket.io-cluster", function() {
   this.timeout(60000);  // 60 seconds.
+
+  var numPackets = 10;
+  var numWorkers = 4;
+  var numClients = 10;
 
   before(function() {
     cluster.setupMaster({
@@ -32,7 +29,7 @@ describe("socket.io-cluster", function() {
       client.on("ping", function(message) {
         client._savedMessages.push(message);
 
-        if (client._savedMessages.length === 10) {
+        if (client._savedMessages.length === numPackets) {
           client.disconnect();
         }
       });
@@ -41,35 +38,38 @@ describe("socket.io-cluster", function() {
     return client;
   }
 
+  // Socket.io polling transport has issues with a high number of connections
+  // atm. This test breaks with more than 100 clients.
   it("behaves correctly under high load - polling transport", function(done) {
-    var numWorkers = Math.max(2, require("os").cpus().length);
     var workers = [];
     for(var i = 0; i < numWorkers; i++) {
-      workers.push(cluster.fork());
+      var worker = cluster.fork();
+      worker.on("exit", function(code) {
+        // Workers should only die normally.
+        expect(code).to.eql(0);
+      });
+      workers.push(worker);
     }
 
-    // var numWorkersReady = 0;
-    // cluster.on("listening", function(worker, address) {
-      // numWorkersReady++;
-      // if (numWorkersReady < numWorkers) {
-      //   return;
-      // }
+    var numWorkersReady = 0;
+    cluster.on("listening", function(worker, address) {
+      numWorkersReady++;
+      if (numWorkersReady < numWorkers) {
+        return;
+      }
 
-      var numClients = 50;
       var numCreated = 0;
       var numConnected = 0;
       var spawnedClients = [];
-      var address = "http://localhost:3000";// + address.port;
 
       var clientConnectHandler = function() {
         numConnected++;
       };
 
       var clientDisconnectHandler = function(reason) {
-        console.log("DC:", reason);
         numConnected--;
 
-        expect(this._savedMessages).to.have.length(10);
+        expect(this._savedMessages).to.have.length(numPackets);
 
         // Make sure all messages originated from same worker.
         var worker;
@@ -82,7 +82,7 @@ describe("socket.io-cluster", function() {
         if (numConnected === 0) {
           done();
         }
-      }
+      };
 
       setInterval(function() {
         console.log(spawnedClients.length);
@@ -95,11 +95,75 @@ describe("socket.io-cluster", function() {
         }
         numCreated++;
 
-        var client = spawnClient(address, ["polling"]);
+        var client = spawnClient("http://localhost:" + address.port, ["polling"]);
         client.on("connect", clientConnectHandler.bind(client));
         client.on("disconnect", clientDisconnectHandler.bind(client));
         spawnedClients.push(client);
       }, 1);
-    // });
+    });
+  });
+
+  it.only("behaves correctly under high load - websocket transport", function(done) {
+    var workers = [];
+    for(var i = 0; i < numWorkers; i++) {
+      var worker = cluster.fork();
+      worker.on("exit", function(code) {
+        // Workers should only die normally.
+        expect(code).to.eql(0);
+      });
+      workers.push(worker);
+    }
+
+    var numWorkersReady = 0;
+    cluster.on("listening", function(worker, address) {
+      numWorkersReady++;
+      if (numWorkersReady < numWorkers) {
+        return;
+      }
+
+      var numCreated = 0;
+      var numConnected = 0;
+      var spawnedClients = [];
+
+      var clientConnectHandler = function() {
+        numConnected++;
+      };
+
+      var clientDisconnectHandler = function() {
+        numConnected--;
+
+        expect(this._savedMessages).to.have.length(numPackets);
+
+        // Make sure all messages originated from same worker.
+        var worker;
+        this._savedMessages.forEach(function(message) {
+          if (!worker) worker = message.worker;
+
+          expect(message.worker).to.equal(worker);
+        });
+
+        if (numConnected === 0) {
+          done();
+        }
+      };
+
+      setInterval(function() {
+        // console.log(spawnedClients[0]);
+        // console.log(spawnedClients[0].io.engine.transport.ws._socket.destroy());
+      }, 1000);
+
+      var createInterval = setInterval(function() {
+        if (numCreated === numClients) {
+          clearInterval(createInterval);
+          return;
+        }
+        numCreated++;
+
+        var client = spawnClient("http://localhost:" + address.port);
+        client.on("connect", clientConnectHandler.bind(client));
+        client.on("disconnect", clientDisconnectHandler.bind(client));
+        spawnedClients.push(client);
+      }, 1);
+    });
   });
 });

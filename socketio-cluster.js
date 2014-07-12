@@ -36,8 +36,15 @@ function patchEngineIO(engineIo) {
 
       // Okay, we got a request for a sid we don't recognize. Pass it off to
       // master to be rerouted.
-      debug("Passing a socket.io request off to be re-routed.");
-      bouncer.passRequest(req, res);
+      debug("Passing a socket.io request off to be re-routed.", sid);
+
+      try {
+        bouncer.passRequest(req, res);
+      } catch(e) {
+        debug("Failed to pass socket.io sid " + sid + " request off.", e.message, e.stack);
+        res.writeHead(503);
+        res.end();
+      }
     };
   });
 
@@ -81,6 +88,7 @@ function patchSocketIO(socketIo) {
       clusterphone.sendToMaster("newsid", socket.id).ackd(next);
 
       socket.on("disconnect", function() {
+        console.log("Socket disconnected.", arguments);
         debug("De-registering sid " + socket.id + " with master.");
         clusterphone.sendToMaster("delsid", socket.id);
       });
