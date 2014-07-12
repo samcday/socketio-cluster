@@ -1,6 +1,6 @@
 {
   "name": "socketio-cluster",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Node cluster support for Socket.IO 1.0",
   "main": "socketio-cluster.js",
   "scripts": {
